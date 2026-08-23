@@ -1,8 +1,6 @@
-using ECommerce.API.DTOs;
-using ECommerce.DAL.Context;
-using ECommerce.DAL.Entities;
+using ECommerce.Application.DTOs.Product;
+using ECommerce.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace ECommerce.API.Controllers;
 
@@ -10,93 +8,97 @@ namespace ECommerce.API.Controllers;
 [Route("api/[controller]")]
 public class ProductsController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly IProductService _productService;
 
-    public ProductsController(AppDbContext context)
+    public ProductsController(
+        IProductService productService)
     {
-        _context = context;
+        _productService = productService;
     }
 
     [HttpGet]
-    public async Task<ActionResult<List<Product>>> GetAll()
+    public async Task<IActionResult> GetAll()
     {
-        var products = await _context.Products.ToListAsync();
+        var products =
+            await _productService.GetAllAsync();
+
         return Ok(products);
     }
 
     [HttpGet("{id}")]
-    public async Task<ActionResult<Product>> GetById(int id)
+    public async Task<IActionResult> GetById(int id)
     {
-        var product = await _context.Products.FindAsync(id);
-        if (product == null) 
-            return NotFound($"Product with ID {id} not found.");
-            
+        var product =
+            await _productService.GetByIdAsync(id);
+
+        if (product == null)
+        {
+            return NotFound(
+                $"Product with ID {id} not found.");
+        }
+
         return Ok(product);
     }
 
     [HttpPost]
-    public async Task<ActionResult<Product>> Create([FromBody] CreateProductDto dto)
+    public async Task<IActionResult> Create(
+        [FromBody] CreateProductDto dto)
     {
-        if (dto.Price <= 0)
+        try
         {
-            return BadRequest("Product price must be greater than zero.");
+            var product =
+                await _productService.CreateAsync(dto);
+
+            return CreatedAtAction(
+                nameof(GetById),
+                new { id = product.Id },
+                product);
         }
-
-        if (dto.StockQuantity < 0)
+        catch (ArgumentException ex)
         {
-            return BadRequest("Stock quantity cannot be negative.");
+            return BadRequest(ex.Message);
         }
-
-        var skuExists = await _context.Products.AnyAsync(p => p.SKU.ToLower() == dto.SKU.ToLower());
-        if (skuExists)
+        catch (InvalidOperationException ex)
         {
-            return BadRequest($"Product with SKU '{dto.SKU}' already exists.");
+            return BadRequest(ex.Message);
         }
-
-        var product = new Product
-        {
-            Name = dto.Name,
-            SKU = dto.SKU.ToUpper(),
-            Price = dto.Price,
-            StockQuantity = dto.StockQuantity
-        };
-
-        await _context.Products.AddAsync(product);
-        await _context.SaveChangesAsync();
-
-        return CreatedAtAction(nameof(GetById), new { id = product.Id }, product);
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(int id, [FromBody] Product product)
+    public async Task<IActionResult> Update(
+        int id,
+        [FromBody] UpdateProductDto dto)
     {
-        var existing = await _context.Products.FindAsync(id);
-        if (existing == null) 
-            return NotFound($"Product with ID {id} not found.");
+        try
+        {
+            var success =
+                await _productService.UpdateAsync(id, dto);
 
-        if (product.Price <= 0)
-            return BadRequest("Price must be positive.");
+            if (!success)
+            {
+                return NotFound(
+                    $"Product with ID {id} not found.");
+            }
 
-        existing.Name = product.Name;
-        existing.SKU = product.SKU;
-        existing.Price = product.Price;
-        existing.StockQuantity = product.StockQuantity;
-
-        _context.Products.Update(existing);
-        await _context.SaveChangesAsync();
-
-        return NoContent();
+            return NoContent();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
     }
 
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
-        var product = await _context.Products.FindAsync(id);
-        if (product == null) 
-            return NotFound($"Product with ID {id} not found.");
+        var success =
+            await _productService.DeleteAsync(id);
 
-        _context.Products.Remove(product);
-        await _context.SaveChangesAsync();
+        if (!success)
+        {
+            return NotFound(
+                $"Product with ID {id} not found.");
+        }
 
         return NoContent();
     }
